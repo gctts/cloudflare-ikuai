@@ -25,6 +25,16 @@ npm run build
 
 产物位于 `dist/`，测速程序仅提供 Linux 和 Windows 版本。macOS 可以编辑、测试和构建源码，运行完整服务请使用 Linux Docker。
 
+## 拉取已发布镜像
+
+```sh
+docker pull ghcr.io/gctts/cloudflare-ikuai:latest
+```
+
+镜像由 main 分支的 GitHub Actions 运行测试、源码构建和容器检查后发布。每次 main 更新会自动发布 latest 和 `sha-<完整提交哈希>` 两个标签。当前内置测速工具为 Linux amd64，仅发布对应架构镜像。
+
+仓库已提供可直接拉取镜像的 `compose.yaml`；账号密码和 CRON 通过 `.env` 调整，持久化配置位于 `./cloudflare-ikuai/configs`。首次发布后，GHCR 包需要设为 Public，才能免登录拉取。
+
 ## Docker 构建和运行
 
 Dockerfile 会从本项目源码自动编译，无需提前准备 dist 或挂载修改后的 index.js。
@@ -38,7 +48,7 @@ Compose 示例（`./cloudflare-ikuai/configs` 为持久化配置目录）：
 ```yaml
 services:
   cloudflare-ikuai:
-    image: cloudflare-ikuai:local
+    image: ghcr.io/gctts/cloudflare-ikuai:latest
     container_name: Cloudflare-Ikuai
     restart: unless-stopped
     network_mode: host
@@ -54,7 +64,7 @@ services:
     mem_limit: 512m
 ```
 
-项目已提供 `compose.yaml` 和 `.env.example`。复制 `.env.example` 为 `.env`，填写实际账号密码及网络模式后，可执行 `docker compose up -d --build`。`.env` 已加入 gitignore。环境变量优先于配置文件。`configs/service.env` 只保留配置模板，不要把实际密码提交进 Git。
+项目已提供 `compose.yaml` 和 `.env.example`。复制 `.env.example` 为 `.env`，填写实际账号密码及网络模式后，可执行 `docker compose pull && docker compose up -d`。`.env` 已加入 gitignore。环境变量优先于配置文件。`configs/service.env` 只保留配置模板，不要把实际密码提交进 Git。
 
 测速结果取决于网络出口。若 qB 被爱快分流到另一条 WAN，测速容器也应走同一出口：可以在部署时将 `network_mode` 改成 `container:qbittorrent-8088`。qB 容器重建后，需重新创建本服务以绑定新容器的网络命名空间。
 

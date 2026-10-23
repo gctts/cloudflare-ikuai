@@ -1,7 +1,6 @@
 services:
   cloudflare-ikuai:
-    build: .
-    image: cloudflare-ikuai:local
+    image: ghcr.io/gctts/cloudflare-ikuai:latest
     container_name: Cloudflare-Ikuai
     restart: unless-stopped
     network_mode: ${NETWORK_MODE:-host}

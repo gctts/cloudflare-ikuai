@@ -1,0 +1,72 @@
+name: Build and publish container
+
+"on":
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 20.19.0
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  publish:
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/gctts/cloudflare-ikuai
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build image from source
+        run: |
+          docker build --pull \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            --tag "$IMAGE:latest" \
+            --tag "$IMAGE:sha-$GITHUB_SHA" .
+      - name: Check image and bundled speed test executable
+        run: |
+          docker run --rm --network none --entrypoint /bin/sh "$IMAGE:sha-$GITHUB_SHA" -ec '
+            test -s /app/index.js
+            test -s /app/configs/domain.txt
+            test -s /app/configs/service.env
+            node --version
+            /app/assets/CloudflareST -h
+          '
+      - name: Publish verified image
+        run: |
+          docker push "$IMAGE:sha-$GITHUB_SHA"
+          docker push "$IMAGE:latest"
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          Published image: \`$IMAGE:latest\`
+
+          Commit image: \`$IMAGE:sha-$GITHUB_SHA\`
+          EOF
