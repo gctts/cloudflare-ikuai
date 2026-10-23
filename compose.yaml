@@ -1,0 +1,17 @@
+services:
+  cloudflare-ikuai:
+    build: .
+    image: cloudflare-ikuai:local
+    container_name: Cloudflare-Ikuai
+    restart: unless-stopped
+    network_mode: ${NETWORK_MODE:-host}
+    environment:
+      TZ: Asia/Shanghai
+      CRON: "${CRON:-0 * * * *}"
+      ROUTER_IP: ${ROUTER_IP:?请在 .env 填写爱快地址}
+      ROUTER_PORT: ${ROUTER_PORT:-80}
+      ROUTER_USERNAME: ${ROUTER_USERNAME:?请在 .env 填写爱快账号}
+      ROUTER_PASSWORD: ${ROUTER_PASSWORD:?请在 .env 填写爱快密码}
+    volumes:
+      - ./cloudflare-ikuai/configs:/app/configs
+    mem_limit: 512m

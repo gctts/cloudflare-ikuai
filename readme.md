@@ -1,84 +1,75 @@
-#           cloudflare-ikuai
+# cloudflare-ikuai
 
-国外一些网站会用cloudflare的CDN，国内用户访问cloudflare不是很友好。Cloudflare 公开了所有 IP 段，可以通过测速选取速度快的CDN节点，IP寻找到以后需要手动添加到ikuai路由器的DNS代理列表中，如果维护域名数量庞大，工作量相当大。于是有了这个软件。他会对cloudflare公开的CDN节点IP测速并且找出速度快延迟低的IP，将IP和域名做绑定。更新到ikuai路由器DNS反向代理列表中。默认每天0点会执行一次，可以环境变量调整频率。
+对每个配置域名单独测试候选 IP 的 TLS 连接延迟，按该域名的平均延迟从低到高选择前 3 个，写入爱快 DNS 规则。不测试下载速度。
 
-程序依赖包安装：
+## 测速和写入流程
 
-```
-npm install
-```
+1. 先用自带的 CloudflareST 对候选做 HTTP 延迟初筛（默认 `https://cp.cloudflare.com/generate_204`，HEAD 请求，不下载响应正文）。首次扫描 `configs/ip.txt` 的完整范围，按每个 /24 随机取一个地址；后续保留最多 64 个候选，每轮另探索 32 个新网段地址。
+2. 每个域名分别测试初筛前 24 个 IP，并加入该域名现有规则中的 IP。对每个组合新建 3 次 TLS 连接，使用目标域名 SNI，校验证书；连接总超时默认 2 秒。
+3. 排除证书错误、超时过多和超出延迟上限的候选；按该域名的平均 TLS 连接耗时排序，取最前 3 个。默认失败率上限为 0.2，因此三次测试都成功才会入选。
+4. 把该域名选出的 IP 按延迟升序写入爱快对应规则。不同域名可能选出不同 IP 和不同排序。保留规则 ID、备注、作用 IP 范围等字段，启用有有效结果的规则；不存在时新增。
+5. 只有 1–2 个候选通过时只写有效地址；没有通过的候选则保留原规则。爱快拒绝写入会明确报错，不记录为成功。完成写入后清理爱快 DNS 缓存。
 
-程序运行：
+这里的延迟是 **TCP 建连 + TLS 握手耗时**，不是 ICMP ping，也不代表 Tracker 返回业务响应的时间。前三名是本轮实际测试候选中的前三名，不代表穷举全部 Cloudflare 地址。没有额外的“必须比原始 DNS 快 15%”写入条件。
 
-```
-npm run start
-```
+执行周期由 `CRON` 配置，默认 `0 * * * *`（每小时整点）。可使用标准五位 cron，例如 `*/5 * * * *` 表示每五分钟、`0 */2 * * *` 表示每两小时。启动时立即执行一轮；上一轮未结束则跳过重叠调度，不叠加测速任务。IPv6 开启后仍由 CloudflareST 对配置的 IPv6 范围采样，每轮可能更久。
 
-程序打包：
+## 本地构建和检查
 
-```
+```sh
+npm ci --ignore-scripts
+npm run typecheck
+npm test
 npm run build
 ```
 
-打包后程序会生成到dist文件。将dist文件拷贝到设备上,使用下面命令即可运行
+产物位于 `dist/`，测速程序仅提供 Linux 和 Windows 版本。macOS 可以编辑、测试和构建源码，运行完整服务请使用 Linux Docker。
 
+## Docker 构建和运行
+
+Dockerfile 会从本项目源码自动编译，无需提前准备 dist 或挂载修改后的 index.js。
+
+```sh
+docker build -t cloudflare-ikuai:local .
 ```
- # Linux系统：
-  ./startup.sh
- # win系统
-  ./startup.bat
-```
 
+Compose 示例（`./cloudflare-ikuai/configs` 为持久化配置目录）：
 
-
-## docker部署
-
-- dockerhub仓库提供docker镜像：
-
-- docker-compose
-
-- ```  
+```yaml
+services:
   cloudflare-ikuai:
-    image: elevenx5566/cloudflare-ikuai:latest
-    container_name: cloudflare-ikuai
+    image: cloudflare-ikuai:local
+    container_name: Cloudflare-Ikuai
     restart: unless-stopped
-    network_mode: "host"
+    network_mode: host
     environment:
-      - TZ=Asia/Shanghai
+      TZ: Asia/Shanghai
+      CRON: "${CRON:-0 * * * *}"
+      ROUTER_IP: ${ROUTER_IP}
+      ROUTER_PORT: ${ROUTER_PORT:-80}
+      ROUTER_USERNAME: ${ROUTER_USERNAME}
+      ROUTER_PASSWORD: ${ROUTER_PASSWORD}
     volumes:
       - ./cloudflare-ikuai/configs:/app/configs
     mem_limit: 512m
-  ```
+```
 
-- docker cli
+项目已提供 `compose.yaml` 和 `.env.example`。复制 `.env.example` 为 `.env`，填写实际账号密码及网络模式后，可执行 `docker compose up -d --build`。`.env` 已加入 gitignore。环境变量优先于配置文件。`configs/service.env` 只保留配置模板，不要把实际密码提交进 Git。
 
-- ```
-    docker run -d \
-    --name cloudflare-ikuai \
-    --restart unless-stopped \
-    --network host \
-    -e TZ=Asia/Shanghai \
-    -v ./cloudflare-ikuai/configs:/app/configs \
-    --memory=512m \
-    elevenx5566/cloudflare-ikuai:latest
+测速结果取决于网络出口。若 qB 被爱快分流到另一条 WAN，测速容器也应走同一出口：可以在部署时将 `network_mode` 改成 `container:qbittorrent-8088`。qB 容器重建后，需重新创建本服务以绑定新容器的网络命名空间。
 
-  ```
-  
-- 部署完成后可以去配置文件修改配置，然后重启容器。请保证网络环境不要有任何代理，会影响测速结果。
-- 配置文件
-  - configs目录下为配置文件存放目录
-    - domain.txt： 
-       - 需要和测速IP绑定并且更到ikuai中的域名，一行一个。可以热加载，修改配置后无需重启。
-    - service.env
-       - 运行环境和测速环境参数，具体可看配置文件注释，不支持热加载,需要重启容器生效。
-    - ip.txt
-       - 需要测速的IPV4
-    - ipv6.txt 
-      - 需要测速的IPV6,需要在service.env配置文件里面打开V6
-  
-- 参考项目：
+## 配置和结果
 
-[XIU2/CloudflareSpeedTest: 🌩「自选优选 IP」测试 Cloudflare CDN 延迟和速度，获取最快 IP ！当然也支持其他 CDN / 网站 IP ~](https://github.com/XIU2/CloudflareSpeedTest)
+- `configs/domain.txt`：每行一个域名，每轮读取，可热更新。目前包含用户提供的 19 个域名，已使用 `tracker.hhanclub.net`。
+- `configs/service.env`：参数模板；修改后重启生效。关键参数为 `SELECT_NUM=3`、`DISABLE_DOWNLOAD=true`、`CRON=0 * * * *`。
+- `configs/ip.txt` / `configs/ipv6.txt`：完整候选范围，不会被测速结果覆盖。
+- `configs/runtime/candidates-v4.json`：保留的初筛候选池。
+- `configs/runtime/last-run-v4.json` / `last-run-v6.json`：逐域名的所有样本、失败原因、排序、最终选中 IP 和爱快写入状态；通过临时文件原子替换。
 
-[yuxiaolejs/ikuai: 爱快路由系统的API](https://github.com/yuxiaolejs/ikuai)
+`DOMAIN_CANDIDATE_NUM` 控制每域名的候选数量，`DOMAIN_TESTS` 控制重复次数，`DOMAIN_TIMEOUT_MS` 控制超时，`DOMAIN_CONCURRENCY` 控制全部域名共享的连接并发上限。更多参数见 `configs/service.env` 注释。
 
+## 上游项目
+
+- https://github.com/elevenx5566/cloudflare-ikuai
+- https://github.com/XIU2/CloudflareSpeedTest
+- https://github.com/yuxiaolejs/ikuai

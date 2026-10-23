@@ -4,7 +4,9 @@
   "main": "index.js",
   "scripts": {
     "build": "npx webpack",
-    "start": "npm run build && node dist/index.js"
+    "start": "npm run build && node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.cjs"
   },
   "keywords": [],
   "author": "",

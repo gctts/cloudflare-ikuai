@@ -1,4 +1,11 @@
 export interface ServiceConfigs {
+    POOL_SIZE:number
+    EXPLORE_NUM:number
+    DOMAIN_CANDIDATES:number
+    DOMAIN_TESTS:number
+    DOMAIN_TIMEOUT:number
+    DOMAIN_CONCURRENCY:number
+    DOMAIN_TIME_LIMIT:number
     ENABLE_V6:boolean
     CRON:string
     ROUTER_USERNAME:string

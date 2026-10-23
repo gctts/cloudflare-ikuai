@@ -2,3 +2,7 @@ dist
 log
 .idea
 node_modules
+logs/
+configs/runtime/
+.env
+.DS_Store

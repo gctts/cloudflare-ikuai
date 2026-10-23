@@ -1,4 +1,20 @@
-#域名，每行一个，#表示注释
-www.aaa.com
-www.bbb.com
-www.ccc.com
+# 每行一个域名；按本域名的 TLS 连接延迟独立排序。
+tracker.ptchdbits.co
+tracker.m-team.cc
+tracker.totheglory.im
+zmpt.cc
+tracker.hxpt.org
+tracker.hhanclub.net
+on.springsunday.net
+t.audiences.me
+tracker.qingwapt.com
+t.ubits.club
+t.hddolby.com
+tracker.piggo.me
+t.hdhome.org
+piggo.me
+tracker.pterclub.net
+ourbits.club
+status.sajuna.cn
+u2.dmhy.org
+tracker.xingyungept.org
