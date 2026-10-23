@@ -1,5 +1,6 @@
 const {logger}=require('./helpers.cjs');const test=require('node:test');const assert=require('node:assert/strict');
 const {IkuaiDnsWriter}=require('../src/services/IkuaiDnsWriter.ts');
+const {selectRouterDomains}=require('../src/services/RouterDomainSource.ts');
 const address=(ip,averageMs)=>({ip,averageMs,samplesMs:[averageMs,averageMs,averageMs],attempts:3,successes:3,lossRate:0,errors:[]});
 const result=(domain,ips)=>({domain,addresses:ips.map((ip,i)=>address(ip,100+i)),selected:ips.map((ip,i)=>address(ip,100+i))});
 function router(rows=[],fail=false){return {writes:[],async exec(module,action,params){
@@ -26,4 +27,22 @@ test('爱快拒绝编辑时必须报告失败，不能记录为写入成功',asy
 test('只修改准确域名及解析类型匹配的规则',async()=>{
  const r=router([{id:1,domain:'a.example',parse_type:'ipv6',comment:'IPv6保持'}]);
  await new IkuaiDnsWriter(r,logger).write([result('a.example',['192.0.2.1'])],'ipv4');assert.equal(r.writes[0].action,'add');
+});
+test('爱快来源只修改选中 ID 的已启用规则，保留其他同名规则及实时备注',async()=>{
+ const rows=[{id:1,domain:'A.Example.',parse_type:'ipv4',enabled:'yes',comment:'旧备注',src_addr:'10.10.10.88'},
+  {id:2,domain:'a.example',parse_type:'ipv4',enabled:'yes'},
+  {id:3,domain:'a.example',parse_type:'ipv4',enabled:'no'},
+  {id:4,domain:'a.example',parse_type:'ipv6',enabled:'yes'}];
+ const selection=selectRouterDomains(rows,'ipv4',new Set(['1','3','4']));rows[0].comment='测速中更新的备注';
+ const r=router(rows);const [report]=await new IkuaiDnsWriter(r,logger).write([result('a.example',['192.0.2.1','192.0.2.2','192.0.2.3'])],'ipv4',selection.ruleIds);
+ const edits=r.writes.filter(w=>w.action==='edit');assert.equal(edits.length,1);assert.equal(edits[0].params.id,1);
+ assert.equal(edits[0].params.domain,'A.Example.');assert.equal(edits[0].params.comment,'测速中更新的备注');
+ assert.equal(edits[0].params.src_addr,'10.10.10.88');assert.equal(report.status,'updated');assert.ok(!r.writes.some(w=>w.action==='add'));
+});
+test('测速期间被停用、改名、删除或替换的规则不写入、不重新创建',async()=>{
+ for(const change of [rows=>rows[0].enabled='no',rows=>rows[0].domain='new.example',rows=>rows.splice(0),rows=>rows[0].id=2]){
+  const rows=[{id:1,domain:'a.example',parse_type:'ipv4',enabled:'yes'}];const selection=selectRouterDomains(rows,'ipv4');change(rows);
+  const r=router(rows);const [report]=await new IkuaiDnsWriter(r,logger).write([result('a.example',['192.0.2.1'])],'ipv4',selection.ruleIds);
+  assert.equal(report.status,'skipped');assert.deepEqual(r.writes,[]);
+ }
 });

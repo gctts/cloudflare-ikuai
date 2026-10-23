@@ -1,5 +1,6 @@
 import {Logger} from 'winston';
 import {DomainResult} from './DomainLatencyTester';
+import {DnsType, normalizeRuleDomain} from './RouterDomainSource';
 
 export interface RouterClient {
     login(username: string, password: string): Promise<unknown>;
@@ -16,7 +17,7 @@ export class IkuaiDnsWriter {
         return response.Data.data;
     }
 
-    public async write(results: DomainResult[], type: 'ipv4' | 'ipv6'): Promise<WriteResult[]> {
+    public async write(results: DomainResult[], type: DnsType, ruleIds?: ReadonlySet<string>): Promise<WriteResult[]> {
         const writes: WriteResult[] = [];
         let changed = false;
         for (const result of results) {
@@ -28,10 +29,16 @@ export class IkuaiDnsWriter {
             }
             try {
                 // 测速结束后重新读取，保留用户在测速期间修改的备注、作用范围等字段。
-                const response = await this.router.exec('dns', 'show', {TYPE: 'dns_proxy_total,dns_proxy',
-                    FILTER1: 'domain,=,' + result.domain, FILTER2: 'parse_type,=,' + type, limit: '0,1000'});
-                if (response.Result !== 30000 || !Array.isArray(response.Data?.data)) throw new Error('读取规则失败');
-                const existing = response.Data.data.filter((row: any) => row.domain === result.domain && row.parse_type === type);
+                // 爱快来源只更新本轮读取过且仍启用的同一条规则；删除或改名后绝不重建旧规则。
+                const rows = ruleIds ? await this.readRules() : await this.readDomainRules(result.domain, type);
+                const existing = rows.filter((row: any) => row.parse_type === type
+                    && (ruleIds ? normalizeRuleDomain(row.domain) === result.domain && row.enabled === 'yes'
+                        && ruleIds.has(String(row.id)) : row.domain === result.domain));
+                if (ruleIds && !existing.length) {
+                    this.logger.info(`${result.domain}：规则已删除、改名或停用，跳过写入`);
+                    writes.push({domain: result.domain, status: 'skipped', ips});
+                    continue;
+                }
                 const entities = existing.length ? existing : [{domain: result.domain, parse_type: type}];
                 for (const entity of entities) {
                     const updated = {...entity, dns_addr: ips.join(','), enabled: 'yes'};
@@ -57,5 +64,12 @@ export class IkuaiDnsWriter {
             } catch (error) { this.logger.warn('规则已写入，但清理爱快 DNS 缓存失败：' + String(error)); }
         }
         return writes;
+    }
+
+    private async readDomainRules(domain: string, type: DnsType): Promise<any[]> {
+        const response = await this.router.exec('dns', 'show', {TYPE: 'dns_proxy_total,dns_proxy',
+            FILTER1: 'domain,=,' + domain, FILTER2: 'parse_type,=,' + type, limit: '0,1000'});
+        if (response.Result !== 30000 || !Array.isArray(response.Data?.data)) throw new Error('读取规则失败');
+        return response.Data.data;
     }
 }

@@ -1,4 +1,6 @@
 export interface ServiceConfigs {
+    DOMAIN_SOURCE:'ikuai' | 'file'
+    IK_DNS_RULE_IDS:string
     POOL_SIZE:number
     EXPLORE_NUM:number
     DOMAIN_CANDIDATES:number

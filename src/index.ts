@@ -4,10 +4,12 @@ import env from 'dotenv'
 import {ServiceConfigs} from "./configs/ServiceConfigs";
 import fs from 'fs'
 import moment from 'moment-timezone'
+import {parseRuleIds} from './services/RouterDomainSource';
 env.config({path:'./configs/service.env'});
 
 const configs: ServiceConfigs = {
-
+    DOMAIN_SOURCE: (process.env.DOMAIN_SOURCE || 'ikuai') as 'ikuai' | 'file',
+    IK_DNS_RULE_IDS: process.env.IK_DNS_RULE_IDS || '',
     POOL_SIZE: Number(process.env.CANDIDATE_POOL_SIZE || 64),
     EXPLORE_NUM: Number(process.env.EXPLORE_NUM || 32),
     DOMAIN_CANDIDATES: Number(process.env.DOMAIN_CANDIDATE_NUM || 24),
@@ -47,6 +49,9 @@ const configs: ServiceConfigs = {
 
 
 };
+
+if (!['ikuai', 'file'].includes(configs.DOMAIN_SOURCE)) throw new Error('DOMAIN_SOURCE 必须是 ikuai 或 file');
+parseRuleIds(configs.IK_DNS_RULE_IDS);
 
 for (const [name, value, min, max] of [
     ['SELECT_NUM', configs.SELECT_NUM, 1, 10], ['CANDIDATE_POOL_SIZE', configs.POOL_SIZE, 3, 1000],
